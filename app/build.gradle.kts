@@ -52,7 +52,7 @@ android {
         register("release") {
             enableV1Signing = true
             enableV2Signing = true
-            storeFile = file("wangchenyan.keystore")
+            storeFile = file("android.keystore")
             storePassword = getLocalValue("STORE_PASSWORD")
             keyAlias = getLocalValue("KEY_ALIAS")
             keyPassword = getLocalValue("KEY_PASSWORD")
