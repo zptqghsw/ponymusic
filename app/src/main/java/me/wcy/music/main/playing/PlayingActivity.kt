@@ -13,6 +13,7 @@ import android.widget.SeekBar
 import android.widget.SeekBar.OnSeekBarChangeListener
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.MediaItem
 import com.gyf.immersionbar.ImmersionBar
 import dagger.hilt.android.AndroidEntryPoint
 import jp.wasabeef.blurry.Blurry
@@ -27,15 +28,22 @@ import me.wcy.music.databinding.ActivityPlayingBinding
 import me.wcy.music.discover.DiscoverApi
 import me.wcy.music.ext.registerReceiverCompat
 import me.wcy.music.main.playlist.CurrentPlaylistFragment
-import me.wcy.music.service.AudioPlayer
-import me.wcy.music.service.likesong.LikeSongProcessor
 import me.wcy.music.service.PlayMode
+import me.wcy.music.service.PlayState
+import me.wcy.music.service.PlayerController
+import me.wcy.music.service.likesong.LikeSongProcessor
 import me.wcy.music.storage.LrcCache
-import me.wcy.music.storage.db.entity.SongEntity
+import me.wcy.music.storage.preference.ConfigPreferences
 import me.wcy.music.utils.TimeUtils
+import me.wcy.music.utils.getDuration
+import me.wcy.music.utils.getLargeCover
+import me.wcy.music.utils.getSongId
+import me.wcy.music.utils.isLocal
 import me.wcy.router.annotation.Route
 import top.wangchenyan.common.ext.toast
 import top.wangchenyan.common.ext.viewBindings
+import top.wangchenyan.common.net.apiCall
+import top.wangchenyan.common.utils.LaunchUtils
 import top.wangchenyan.common.utils.StatusBarUtils
 import top.wangchenyan.common.utils.image.ImageUtils
 import java.io.File
@@ -51,7 +59,7 @@ class PlayingActivity : BaseMusicActivity() {
     private val viewBinding by viewBindings<ActivityPlayingBinding>()
 
     @Inject
-    lateinit var audioPlayer: AudioPlayer
+    lateinit var playerController: PlayerController
 
     @Inject
     lateinit var likeSongProcessor: LikeSongProcessor
@@ -107,7 +115,8 @@ class PlayingActivity : BaseMusicActivity() {
     }
 
     private fun initCover() {
-        viewBinding.albumCoverView.initNeedle(audioPlayer.playState.value.isPlaying)
+        val playState = playerController.playState.value
+        viewBinding.albumCoverView.initNeedle(playState.isPlaying)
         viewBinding.clAlbumCover.setOnClickListener {
             switchCoverLrc(false)
         }
@@ -115,10 +124,11 @@ class PlayingActivity : BaseMusicActivity() {
 
     private fun initLrc() {
         viewBinding.lrcView.setDraggable(true) { view, time ->
-            if (audioPlayer.playState.value.isPlaying || audioPlayer.playState.value.isPausing) {
-                audioPlayer.seekTo(time.toInt())
-                if (audioPlayer.playState.value.isPausing) {
-                    audioPlayer.playPause()
+            val playState = playerController.playState.value
+            if (playState.isPlaying || playState.isPausing) {
+                playerController.seekTo(time.toInt())
+                if (playState.isPausing) {
+                    playerController.playPause()
                 }
                 return@setDraggable true
             }
@@ -132,10 +142,25 @@ class PlayingActivity : BaseMusicActivity() {
     private fun initActions() {
         viewBinding.ivLike.setOnClickListener {
             lifecycleScope.launch {
-                val song = audioPlayer.currentSong.value ?: return@launch
-                val res = likeSongProcessor.like(this@PlayingActivity, song.songId)
+                val song = playerController.currentSong.value ?: return@launch
+                val res = likeSongProcessor.like(this@PlayingActivity, song.getSongId())
                 if (res.isSuccess()) {
-                    updateLikeState(song)
+                    updateOnlineActionsState(song)
+                } else {
+                    toast(res.msg)
+                }
+            }
+        }
+        viewBinding.ivDownload.setOnClickListener {
+            lifecycleScope.launch {
+                val song = playerController.currentSong.value ?: return@launch
+                val res = apiCall {
+                    DiscoverApi.get()
+                        .getSongUrl(song.getSongId(), ConfigPreferences.downloadSoundQuality)
+                }
+                if (res.isSuccessWithData() && res.getDataOrThrow().isNotEmpty()) {
+                    val url = res.getDataOrThrow().first().url
+                    LaunchUtils.launchBrowser(this@PlayingActivity, url)
                 } else {
                     toast(res.msg)
                 }
@@ -145,7 +170,7 @@ class PlayingActivity : BaseMusicActivity() {
 
     private fun initPlayControl() {
         lifecycleScope.launch {
-            audioPlayer.playMode.collectLatest { playMode ->
+            playerController.playMode.collectLatest { playMode ->
                 viewBinding.ivMode.setImageLevel(playMode.value)
             }
         }
@@ -157,14 +182,14 @@ class PlayingActivity : BaseMusicActivity() {
         viewBinding.ivMode.setOnClickListener {
             switchPlayMode()
         }
-        viewBinding.ivPlay.setOnClickListener {
-            audioPlayer.playPause()
+        viewBinding.flPlay.setOnClickListener {
+            playerController.playPause()
         }
         viewBinding.ivPrev.setOnClickListener {
-            audioPlayer.prev()
+            playerController.prev()
         }
         viewBinding.ivNext.setOnClickListener {
-            audioPlayer.next()
+            playerController.next()
         }
         viewBinding.ivPlaylist.setOnClickListener {
             CurrentPlaylistFragment.newInstance()
@@ -185,11 +210,10 @@ class PlayingActivity : BaseMusicActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
                 seekBar ?: return
                 isDraggingProgress = false
-                if (audioPlayer.playState.value.isPlaying
-                    || audioPlayer.playState.value.isPausing
-                ) {
+                val playState = playerController.playState.value
+                if (playState.isPlaying || playState.isPausing) {
                     val progress = seekBar.progress
-                    audioPlayer.seekTo(progress)
+                    playerController.seekTo(progress)
                     if (viewBinding.lrcView.hasLrc()) {
                         viewBinding.lrcView.updateTime(progress.toLong())
                     }
@@ -217,46 +241,35 @@ class PlayingActivity : BaseMusicActivity() {
     }
 
     private fun initData() {
-        audioPlayer.currentSong.observe(this) { song ->
+        playerController.currentSong.observe(this) { song ->
             if (song != null) {
-                viewBinding.tvTitle.text = song.title
-                viewBinding.tvArtist.text = song.artist
-                viewBinding.sbProgress.max = song.duration.toInt()
-                viewBinding.sbProgress.progress = audioPlayer.playProgress.value.toInt()
+                viewBinding.tvTitle.text = song.mediaMetadata.title
+                viewBinding.tvArtist.text = song.mediaMetadata.artist
+                viewBinding.sbProgress.max = song.mediaMetadata.getDuration().toInt()
+                viewBinding.sbProgress.progress = playerController.playProgress.value.toInt()
                 viewBinding.sbProgress.secondaryProgress = 0
                 lastProgress = 0
-                viewBinding.tvCurrentTime.text = TimeUtils.formatMs(audioPlayer.playProgress.value)
-                viewBinding.tvTotalTime.text = TimeUtils.formatMs(song.duration)
+                viewBinding.tvCurrentTime.text =
+                    TimeUtils.formatMs(playerController.playProgress.value)
+                viewBinding.tvTotalTime.text = TimeUtils.formatMs(song.mediaMetadata.getDuration())
                 updateCover(song)
                 updateLrc(song)
                 viewBinding.albumCoverView.reset()
-                if (audioPlayer.playState.value.isPlaying || audioPlayer.playState.value.isPreparing) {
-                    viewBinding.ivPlay.isSelected = true
-                    viewBinding.albumCoverView.start()
-                } else {
-                    viewBinding.ivPlay.isSelected = false
-                    viewBinding.albumCoverView.pause()
-                }
-                updateLikeState(song)
+                updatePlayState(playerController.playState.value)
+                updateOnlineActionsState(song)
             } else {
                 finish()
             }
         }
 
         lifecycleScope.launch {
-            audioPlayer.playState.collectLatest { playState ->
-                if (playState.isPlaying) {
-                    viewBinding.ivPlay.isSelected = true
-                    viewBinding.albumCoverView.start()
-                } else {
-                    viewBinding.ivPlay.isSelected = false
-                    viewBinding.albumCoverView.pause()
-                }
+            playerController.playState.collectLatest { playState ->
+                updatePlayState(playState)
             }
         }
 
         lifecycleScope.launch {
-            audioPlayer.playProgress.collectLatest { progress ->
+            playerController.playProgress.collectLatest { progress ->
                 if (isDraggingProgress.not()) {
                     viewBinding.sbProgress.progress = progress.toInt()
                 }
@@ -267,14 +280,14 @@ class PlayingActivity : BaseMusicActivity() {
         }
 
         lifecycleScope.launch {
-            audioPlayer.bufferingPercent.collectLatest { percent ->
+            playerController.bufferingPercent.collectLatest { percent ->
                 viewBinding.sbProgress.secondaryProgress =
                     viewBinding.sbProgress.max * percent / 100
             }
         }
     }
 
-    private fun updateCover(song: SongEntity) {
+    private fun updateCover(song: MediaItem) {
         viewBinding.albumCoverView.setCoverBitmap(defaultCoverBitmap)
         viewBinding.ivPlayingBg.setImageResource(R.drawable.bg_playing_default)
         ImageUtils.loadBitmap(song.getLargeCover()) {
@@ -286,7 +299,7 @@ class PlayingActivity : BaseMusicActivity() {
         }
     }
 
-    private fun updateLrc(song: SongEntity) {
+    private fun updateLrc(song: MediaItem) {
         loadLrcJob?.cancel()
         loadLrcJob = null
         val lrcPath = LrcCache.getLrcFilePath(song)
@@ -294,13 +307,14 @@ class PlayingActivity : BaseMusicActivity() {
             loadLrc(lrcPath)
             return
         }
+        viewBinding.lrcView.loadLrc("")
         if (song.isLocal()) {
             setLrcLabel("暂无歌词")
         } else {
             setLrcLabel("歌词加载中…")
             loadLrcJob = lifecycleScope.launch {
                 kotlin.runCatching {
-                    val lrcWrap = DiscoverApi.get().getLrc(song.songId)
+                    val lrcWrap = DiscoverApi.get().getLrc(song.getSongId())
                     if (lrcWrap.code == 200 && lrcWrap.lrc.isValid()) {
                         lrcWrap.lrc
                     } else {
@@ -332,17 +346,43 @@ class PlayingActivity : BaseMusicActivity() {
     }
 
     private fun switchPlayMode() {
-        val mode = when (audioPlayer.playMode.value) {
+        val mode = when (playerController.playMode.value) {
             PlayMode.Loop -> PlayMode.Shuffle
             PlayMode.Shuffle -> PlayMode.Single
             PlayMode.Single -> PlayMode.Loop
         }
         toast(mode.nameRes)
-        audioPlayer.setPlayMode(mode)
+        playerController.setPlayMode(mode)
     }
 
-    private fun updateLikeState(song: SongEntity) {
-        viewBinding.ivLike.isSelected = likeSongProcessor.isLiked(song.songId)
+    private fun updatePlayState(playState: PlayState) {
+        when (playState) {
+            PlayState.Preparing -> {
+                viewBinding.flPlay.isEnabled = false
+                viewBinding.ivPlay.isSelected = false
+                viewBinding.loadingProgress.isVisible = true
+                viewBinding.albumCoverView.pause()
+            }
+
+            PlayState.Playing -> {
+                viewBinding.flPlay.isEnabled = true
+                viewBinding.ivPlay.isSelected = true
+                viewBinding.loadingProgress.isVisible = false
+                viewBinding.albumCoverView.start()
+            }
+
+            else -> {
+                viewBinding.flPlay.isEnabled = true
+                viewBinding.ivPlay.isSelected = false
+                viewBinding.loadingProgress.isVisible = false
+                viewBinding.albumCoverView.pause()
+            }
+        }
+    }
+
+    private fun updateOnlineActionsState(song: MediaItem) {
+        viewBinding.llActions.isVisible = song.isLocal().not()
+        viewBinding.ivLike.isSelected = likeSongProcessor.isLiked(song.getSongId())
     }
 
     override fun getNavigationBarColor(): Int {

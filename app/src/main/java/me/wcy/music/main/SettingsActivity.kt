@@ -6,13 +6,12 @@ import android.media.audiofx.AudioEffect
 import android.os.Bundle
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
-import androidx.preference.SwitchPreference
 import dagger.hilt.android.AndroidEntryPoint
 import me.wcy.music.R
 import me.wcy.music.common.BaseMusicActivity
 import me.wcy.music.common.DarkModeService
 import me.wcy.music.consts.PreferenceName
-import me.wcy.music.service.AudioPlayer
+import me.wcy.music.service.PlayerController
 import me.wcy.music.storage.preference.ConfigPreferences
 import me.wcy.music.utils.MusicUtils
 import me.wcy.router.annotation.Route
@@ -37,24 +36,24 @@ class SettingsActivity : BaseMusicActivity() {
         private val darkMode: Preference by lazy {
             findPreference(getString(R.string.setting_key_dark_mode))!!
         }
-        private val useCustomNotification: SwitchPreference by lazy {
-            findPreference(getString(R.string.setting_key_use_custom_notification))!!
-        }
         private val playSoundQuality: Preference by lazy {
             findPreference(getString(R.string.setting_key_play_sound_quality))!!
         }
-        private val mSoundEffect: Preference by lazy {
+        private val soundEffect: Preference by lazy {
             findPreference(getString(R.string.setting_key_sound_effect))!!
         }
-        private val mFilterSize: Preference by lazy {
+        private val downloadSoundQuality: Preference by lazy {
+            findPreference(getString(R.string.setting_key_download_sound_quality))!!
+        }
+        private val filterSize: Preference by lazy {
             findPreference(getString(R.string.setting_key_filter_size))!!
         }
-        private val mFilterTime: Preference by lazy {
+        private val filterTime: Preference by lazy {
             findPreference(getString(R.string.setting_key_filter_time))!!
         }
 
         @Inject
-        lateinit var player: AudioPlayer
+        lateinit var playerController: PlayerController
 
         @Inject
         lateinit var darkModeService: DarkModeService
@@ -64,9 +63,9 @@ class SettingsActivity : BaseMusicActivity() {
             addPreferencesFromResource(R.xml.preference_setting)
 
             initDarkMode()
-            initNotificationStyle()
             initPlaySoundQuality()
             initSoundEffect()
+            initDownloadSoundQuality()
             initFilter()
         }
 
@@ -78,7 +77,7 @@ class SettingsActivity : BaseMusicActivity() {
             )
             darkMode.setOnPreferenceChangeListener { preference, newValue ->
                 val value = newValue.toString()
-                mFilterSize.summary = getSummary(
+                filterSize.summary = getSummary(
                     value,
                     R.array.dark_mode_entries,
                     R.array.dark_mode_values
@@ -89,47 +88,56 @@ class SettingsActivity : BaseMusicActivity() {
             }
         }
 
-        private fun initNotificationStyle() {
-            useCustomNotification.isChecked = ConfigPreferences.useCustomNotification
-            useCustomNotification.setOnPreferenceChangeListener { preference, newValue ->
-                ConfigPreferences.useCustomNotification = newValue == true
-                true
-            }
-        }
-
         private fun initPlaySoundQuality() {
             playSoundQuality.summary = getSummary(
                 ConfigPreferences.playSoundQuality,
-                R.array.play_sound_quality_entries,
-                R.array.play_sound_quality_entry_values
+                R.array.sound_quality_entries,
+                R.array.sound_quality_entry_values
             )
             playSoundQuality.setOnPreferenceChangeListener { preference, newValue ->
                 val value = newValue.toString()
                 playSoundQuality.summary = getSummary(
                     value,
-                    R.array.play_sound_quality_entries,
-                    R.array.play_sound_quality_entry_values
+                    R.array.sound_quality_entries,
+                    R.array.sound_quality_entry_values
                 )
                 true
             }
         }
 
         private fun initSoundEffect() {
-            mSoundEffect.setOnPreferenceClickListener {
+            soundEffect.setOnPreferenceClickListener {
                 startEqualizer()
                 true
             }
         }
 
+        private fun initDownloadSoundQuality() {
+            downloadSoundQuality.summary = getSummary(
+                ConfigPreferences.downloadSoundQuality,
+                R.array.sound_quality_entries,
+                R.array.sound_quality_entry_values
+            )
+            downloadSoundQuality.setOnPreferenceChangeListener { preference, newValue ->
+                val value = newValue.toString()
+                downloadSoundQuality.summary = getSummary(
+                    value,
+                    R.array.sound_quality_entries,
+                    R.array.sound_quality_entry_values
+                )
+                true
+            }
+        }
+
         private fun initFilter() {
-            mFilterSize.summary = getSummary(
+            filterSize.summary = getSummary(
                 ConfigPreferences.filterSize,
                 R.array.filter_size_entries,
                 R.array.filter_size_entry_values
             )
-            mFilterSize.setOnPreferenceChangeListener { preference, newValue ->
+            filterSize.setOnPreferenceChangeListener { preference, newValue ->
                 val value = newValue.toString()
-                mFilterSize.summary = getSummary(
+                filterSize.summary = getSummary(
                     value,
                     R.array.filter_size_entries,
                     R.array.filter_size_entry_values
@@ -137,14 +145,14 @@ class SettingsActivity : BaseMusicActivity() {
                 true
             }
 
-            mFilterTime.summary = getSummary(
+            filterTime.summary = getSummary(
                 ConfigPreferences.filterTime,
                 R.array.filter_time_entries,
                 R.array.filter_time_entry_values
             )
-            mFilterTime.setOnPreferenceChangeListener { preference, newValue ->
+            filterTime.setOnPreferenceChangeListener { preference, newValue ->
                 val value = newValue.toString()
-                mFilterTime.summary = getSummary(
+                filterTime.summary = getSummary(
                     value,
                     R.array.filter_time_entries,
                     R.array.filter_time_entry_values
@@ -162,7 +170,7 @@ class SettingsActivity : BaseMusicActivity() {
                 intent.putExtra(AudioEffect.EXTRA_CONTENT_TYPE, AudioEffect.CONTENT_TYPE_MUSIC)
                 intent.putExtra(
                     AudioEffect.EXTRA_AUDIO_SESSION,
-                    player.getAudioSessionId()
+                    playerController.getAudioSessionId()
                 )
                 try {
                     startActivity(intent)

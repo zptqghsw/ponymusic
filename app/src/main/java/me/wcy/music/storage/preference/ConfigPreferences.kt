@@ -20,6 +20,11 @@ object ConfigPreferences :
         "standard"
     )
 
+    var downloadSoundQuality by IPreferencesFile.StringProperty(
+        StringUtils.getString(R.string.setting_key_download_sound_quality),
+        "standard"
+    )
+
     var filterSize by IPreferencesFile.StringProperty(
         StringUtils.getString(R.string.setting_key_filter_size),
         "0"
@@ -33,11 +38,6 @@ object ConfigPreferences :
     var darkMode by IPreferencesFile.StringProperty(
         "dark_mode",
         DarkModeService.DarkMode.Auto.value
-    )
-
-    var useCustomNotification by IPreferencesFile.BooleanProperty(
-        StringUtils.getString(R.string.setting_key_use_custom_notification),
-        false
     )
 
     var playMode: Int by IPreferencesFile.IntProperty("play_mode", 0)

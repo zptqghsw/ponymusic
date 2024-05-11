@@ -21,7 +21,7 @@ class LikeSongProcessorImpl @Inject constructor(
 ) : LikeSongProcessor, CoroutineScope by MainScope() {
     private val likeSongSet = mutableSetOf<Long>()
 
-    init {
+    override fun init() {
         launch {
             userService.profile.collectLatest {
                 if (it != null) {
@@ -33,7 +33,7 @@ class LikeSongProcessorImpl @Inject constructor(
         }
     }
 
-    private fun updateLikeSongList() {
+    override fun updateLikeSongList() {
         if (userService.isLogin().not()) return
         launch {
             val res = runCatching {
@@ -57,7 +57,7 @@ class LikeSongProcessorImpl @Inject constructor(
     override suspend fun like(activity: Activity, id: Long): CommonResult<Unit> {
         if (userService.isLogin().not()) {
             userService.checkLogin(activity)
-            return CommonResult.fail(msg = "未登录")
+            return CommonResult.fail()
         }
         val isLike = isLiked(id)
         if (isLike) {
