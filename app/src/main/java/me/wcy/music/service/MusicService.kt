@@ -11,9 +11,9 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
-import com.blankj.utilcode.util.IntentUtils
 import me.wcy.music.R
 import me.wcy.music.net.datasource.MusicDataSource
+import me.wcy.music.utils.MusicUtils
 import top.wangchenyan.common.CommonApp
 
 /**
@@ -27,7 +27,6 @@ class MusicService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
 
-        @OptIn(UnstableApi::class)
         player = ExoPlayer.Builder(applicationContext)
             // 自动处理音频焦点
             .setAudioAttributes(AudioAttributes.DEFAULT, true)
@@ -44,13 +43,7 @@ class MusicService : MediaSessionService() {
                 PendingIntent.getActivity(
                     this,
                     0,
-                    IntentUtils.getLaunchAppIntent(packageName).apply {
-                        putExtra(EXTRA_NOTIFICATION, true)
-                        action = Intent.ACTION_VIEW
-                        addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                        addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    },
+                    MusicUtils.getStartPlayingPageIntent(this),
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
             )

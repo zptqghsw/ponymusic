@@ -2,10 +2,11 @@ package me.wcy.music.utils
 
 import android.graphics.Bitmap
 import android.widget.ImageView
+import androidx.core.graphics.scale
 import com.bumptech.glide.load.resource.bitmap.CenterCrop
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
-import top.wangchenyan.common.ext.load
 import me.wcy.music.R
+import top.wangchenyan.common.ext.load
 
 /**
  * 图像工具类
@@ -20,7 +21,7 @@ object ImageUtils {
         return if (source.width == dstWidth && source.height == dstHeight) {
             source
         } else {
-            Bitmap.createScaledBitmap(source, dstWidth, dstHeight, true)
+            source.scale(dstWidth, dstHeight)
         }
     }
 

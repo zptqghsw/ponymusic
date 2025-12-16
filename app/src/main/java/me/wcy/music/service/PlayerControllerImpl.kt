@@ -2,17 +2,19 @@ package me.wcy.music.service
 
 import androidx.annotation.MainThread
 import androidx.annotation.OptIn
-import androidx.lifecycle.MutableLiveData
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.session.MediaController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.wcy.music.storage.db.MusicDatabase
@@ -26,14 +28,17 @@ import top.wangchenyan.common.ext.toast
  * Created by wangchenyan.top on 2024/3/27.
  */
 class PlayerControllerImpl(
-    private val player: Player,
+    private val player: MediaController,
     private val db: MusicDatabase,
 ) : PlayerController, CoroutineScope by MainScope() {
 
-    private val _playlist = MutableLiveData(emptyList<MediaItem>())
+    override val mediaController: MediaController
+        get() = player
+
+    private val _playlist = MutableStateFlow(emptyList<MediaItem>())
     override val playlist = _playlist.toUnMutable()
 
-    private val _currentSong = MutableLiveData<MediaItem?>(null)
+    private val _currentSong = MutableStateFlow<MediaItem?>(null)
     override val currentSong = _currentSong.toUnMutable()
 
     private val _playState = MutableStateFlow<PlayState>(PlayState.Idle)
@@ -86,7 +91,7 @@ class PlayerControllerImpl(
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 super.onMediaItemTransition(mediaItem, reason)
                 mediaItem ?: return
-                val playlist = _playlist.value ?: return
+                val playlist = _playlist.value
                 _currentSong.value = playlist.find { it.mediaId == mediaItem.mediaId }
             }
 
@@ -129,13 +134,13 @@ class PlayerControllerImpl(
                 }
             }
 
-            _currentSong.observeForever {
+            _currentSong.collectLatest {
                 ConfigPreferences.currentSongId = it?.mediaId ?: ""
             }
         }
 
         launch {
-            while (true) {
+            while (isActive) {
                 if (player.isPlaying) {
                     _playProgress.value = player.currentPosition
                 }
@@ -147,7 +152,7 @@ class PlayerControllerImpl(
     @MainThread
     override fun addAndPlay(song: MediaItem) {
         launch(Dispatchers.Main.immediate) {
-            val newPlaylist = _playlist.value?.toMutableList() ?: mutableListOf()
+            val newPlaylist = _playlist.value.toMutableList()
             val index = newPlaylist.indexOfFirst { it.mediaId == song.mediaId }
             if (index >= 0) {
                 newPlaylist[index] = song
@@ -183,7 +188,7 @@ class PlayerControllerImpl(
     @MainThread
     override fun play(mediaId: String) {
         val playlist = _playlist.value
-        if (playlist.isNullOrEmpty()) {
+        if (playlist.isEmpty()) {
             return
         }
         val index = playlist.indexOfFirst { it.mediaId == mediaId }
@@ -203,7 +208,7 @@ class PlayerControllerImpl(
     @MainThread
     override fun delete(song: MediaItem) {
         launch(Dispatchers.Main.immediate) {
-            val playlist = _playlist.value?.toMutableList() ?: mutableListOf()
+            val playlist = _playlist.value.toMutableList()
             val index = playlist.indexOfFirst { it.mediaId == song.mediaId }
             if (index < 0) return@launch
             if (playlist.size == 1) {

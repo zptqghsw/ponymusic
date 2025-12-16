@@ -11,10 +11,11 @@
 
 ## 展示
 ### 视频
-[![](https://raw.githubusercontent.com/wangchenyan/ponymusic/master/art/video_cover.jpg)](https://www.ixigua.com/7294169212384182291)
+[![](https://raw.githubusercontent.com/wangchenyan/ponymusic/master/art/video_cover.jpg)](https://www.bilibili.com/video/BV1rXy8BeEb5/)
 
 ### 截图
 ![](https://raw.githubusercontent.com/wangchenyan/ponymusic/master/art/screenshot.jpg)
+![桌面小组件](https://raw.githubusercontent.com/wangchenyan/ponymusic/master/art/app_widget.png)
 
 ## 功能
 > 后续可能会根据大家的反馈增加或调整功能
@@ -25,6 +26,7 @@
 - 专辑封面显示
 - 歌词显示，支持拖动歌词调节播放进度
 - 通知栏控制
+- 桌面小组件
 - 夜间模式
 - 定时关闭
 
@@ -45,13 +47,13 @@
 > 欢迎大家体验，如果发现功能问题或兼容性问题，可以提 [GitHub Issue](https://github.com/wangchenyan/ponymusic/issues)
 
 ### 环境要求
-- Android 手机（系统版本为 Android 5.0 及以上）
+- Android 手机（系统版本为 Android 6.0 及以上）
 - 电脑（非必须）
 
 ### 安装步骤
 1. 搭建网易云服务器<br>
    由于我们使用的是非官方 API，因此需要自行搭建 API 服务器。<br>
-   clone [NeteaseCloudMusicApi](https://github.com/Binaryify/NeteaseCloudMusicApi) 服务端项目到本地，根据项目说明安装并运行服务，需要确认电脑和手机处于同一局域网
+   打开服务端项目 [NeteaseCloudMusicApi](https://github.com/Binaryify/NeteaseCloudMusicApi) (或 [NeteaseCloudMusicApiBackup](https://github.com/nooblong/NeteaseCloudMusicApiBackup)) 主页，根据项目说明安装并运行服务，需要确认电脑和手机处于同一局域网
 2. 安装 APP<br>
    点击下载[最新安装包](https://github.com/wangchenyan/ponymusic/releases)
 3. 设置域名<br>
@@ -59,17 +61,25 @@
 4. 设置完成即可体验
 
 ### 没有电脑，如何体验？
-> 其实有一些同仁已经将网易云 API 服务部署到公网了，我们可以直接用🐶。
->
-> 这里不方便直接贴地址，下面教大家如何找到可以用的服务：
->
-> 用 Google 搜索「[网易云音乐API](https://www.google.com.hk/search?q=%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90API)」，点击搜索结果链接，如果页面打开后是下图这样（注意：非作者的 github.io 页面），恭喜！你找到了可以直接使用的服务，拷贝地址栏链接，输入到步骤3即可。
->
-> 如果设置域名后 APP 接口报错，说明这个域名不可用，可以尝试其他结果。
->
-> ![](https://raw.githubusercontent.com/wangchenyan/ponymusic/master/art/api_page.jpg)
+使用电脑的目的是为了部署后端 API 服务，其实我们的 Android 手机也可以作为服务器！
+
+1. 安装 `Termux`<br>
+   这是 Android 平台下的一个开源的终端模拟器，[GitHub 下载地址](https://github.com/termux/termux-app/releases)
+2. 安装 `nodejs`<br>
+   启动 `Termux`，执行 `pkg install nodejs` 命令安装 `nodejs`<br>
+   完成后可通过 `node -v` 确认是否安装成功
+3. 运行网易云服务器<br>
+   在 `Termux` 中执行 `npx NeteaseCloudMusicApi@latest` 命令安装并运行网易云服务器<br>
+   看到控制台打印 `server running @ http://localhost:3000` 即表示运行成功
+4. 设置域名<br>
+   打开波尼音乐APP，输入域名 `http://localhost:3000/` 并重启即可
 
 ## 更新说明
+`2.4.0`
+- 新增桌面小组件（Powered by [Glance](https://developer.android.com/develop/ui/compose/glance)）
+- 新增横屏模式（大屏设备效果更好）
+- 适配 Android 16
+
 `2.3.0`
 - 播放器内核升级为 Media3 + ExoPlayer
 - 修复歌单内歌曲超过1000首加载失败的问题
@@ -124,11 +134,15 @@
 - First Release
 
 ## TODO
-- [ ] 桌面小部件 by [Glance](https://developer.android.com/jetpack/compose/glance/create-app-widget)
+- [x] 桌面小组件 with [Glance](https://developer.android.com/develop/ui/compose/glance)
 - [x] 适配 Android 14
 - [x] 在线音乐可以免下载加入我的音乐列表
 - [ ] 在线音乐自动缓存
 - [x] 编辑音乐信息
+
+## Liked it?
+如果你觉得该项目对你有帮助，欢迎给它一个 star⭐️
+[![Stargazers over time](https://starchart.cc/wangchenyan/ponymusic.svg?variant=adaptive)](https://starchart.cc/wangchenyan/ponymusic)
 
 ## 依赖
 > 站在巨人的肩膀上
@@ -146,7 +160,6 @@
 - 统计&崩溃收集: [Firebase](https://firebase.google.com)
 - 路由框架: [wangchenyan/crouter: 支持组件化的 Android 路由框架](https://github.com/wangchenyan/crouter)
 - 歌词控件: [wangchenyan/lrcview: Android beautiful draggable lyric view library](https://github.com/wangchenyan/lrcview)
-- 启动任务: [wangchenyan/init: Android 启动任务调度](https://github.com/wangchenyan/init)
 - 通用库: [wangchenyan/android-common: 个人使用的 Android 通用库](https://github.com/wangchenyan/android-common)
 - RecyclerView Adapter: [wangchenyan/radapter3: A multitype adapter for Android recyclerview](https://github.com/wangchenyan/radapter3)
 

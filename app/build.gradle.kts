@@ -3,16 +3,16 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin)
+    alias(libs.plugins.compose.compiler)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
     if (File("app/google-services.json").exists()) {
-        println("enable gms in app plugins")
+        println("Enable gms in app plugins")
         alias(libs.plugins.gms)
         alias(libs.plugins.crashlytics)
     }
-    id("kotlin-kapt")
     id("kotlin-parcelize")
-    id("auto-register")
+    id("crouter-plugin")
 }
 
 android {
@@ -46,6 +46,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        compose = true
     }
 
     signingConfigs {
@@ -75,6 +76,14 @@ android {
         sourceCompatibility = JavaVersion.valueOf(libs.versions.java.get())
         targetCompatibility = JavaVersion.valueOf(libs.versions.java.get())
     }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.valueOf(libs.versions.java.get()).toString()
+    }
+
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.15"
+    }
 }
 
 fun getLocalValue(key: String): String {
@@ -95,11 +104,6 @@ fun getLocalValue(key: String, quot: Boolean): String {
     return value
 }
 
-kapt {
-    // For hilt: Allow references to generated code
-    correctErrorTypes = true
-}
-
 ksp {
     arg("moduleName", project.name)
     // crouter 默认 scheme
@@ -107,19 +111,6 @@ ksp {
     // crouter 默认 host
     arg("defaultHost", "music")
     arg("room.schemaLocation", "$projectDir/schemas")
-}
-
-autoregister {
-    registerInfo = listOf(
-        // crouter 注解收集
-        mapOf(
-            "scanInterface" to "me.wcy.router.annotation.RouteLoader",
-            "codeInsertToClassName" to "me.wcy.router.RouteSet",
-            "codeInsertToMethodName" to "init",
-            "registerMethodName" to "register",
-            "include" to listOf("me/wcy/router/annotation/loader/.*")
-        )
-    )
 }
 
 dependencies {
@@ -132,20 +123,22 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.preference)
     implementation(libs.flexbox)
+    implementation(libs.glance)
 
     ksp(libs.room.compiler)
     implementation(libs.room)
-    kapt(libs.hilt.compiler)
+    ksp(libs.hilt.compiler)
     implementation(libs.hilt)
 
     if (File("${project.projectDir}/google-services.json").exists()) {
-        println("enable gms in app dependencies")
+        println("Enable gms in app dependencies")
         implementation(libs.crashlytics)
         implementation(libs.analytics)
     }
 
     implementation(libs.common)
-    ksp(libs.crouter.compiler)
+    // implementation(project(":common"))
+    ksp(libs.crouter.processor)
     implementation(libs.crouter.api)
     implementation(libs.lrcview)
 

@@ -18,6 +18,7 @@ import me.wcy.music.discover.DiscoverApi
 import me.wcy.music.discover.ranking.item.OfficialRankingItemBinder
 import me.wcy.music.discover.ranking.item.RankingTitleItemBinding
 import me.wcy.music.discover.ranking.item.SelectedRankingItemBinder
+import me.wcy.music.discover.ranking.item.SelectedRankingSpacingDecoration
 import me.wcy.music.discover.ranking.viewmodel.RankingViewModel
 import me.wcy.music.service.PlayerController
 import me.wcy.music.utils.toMediaItem
@@ -26,6 +27,7 @@ import me.wcy.radapter3.RItemBinder
 import me.wcy.radapter3.RTypeMapper
 import me.wcy.router.CRouter
 import me.wcy.router.annotation.Route
+import top.wangchenyan.common.ext.getColor
 import top.wangchenyan.common.ext.viewBindings
 import javax.inject.Inject
 
@@ -41,6 +43,19 @@ class RankingFragment : BaseMusicFragment() {
 
     @Inject
     lateinit var playerController: PlayerController
+
+    private val spanCount: Int by lazy {
+        val containerWidth = ScreenUtils.getAppScreenWidth() - SizeUtils.dp2px(32f)
+        val itemWidth = resources.getDimensionPixelSize(R.dimen.playlist_item_max_width)
+        val itemSpace = SizeUtils.dp2px(10f)
+        val count = containerWidth / (itemWidth + itemSpace)
+        count.coerceAtLeast(3)
+    }
+    private val itemWidth: Int by lazy {
+        val containerWidth = ScreenUtils.getAppScreenWidth() - SizeUtils.dp2px(32f)
+        val itemSpace = SizeUtils.dp2px(10f)
+        (containerWidth - itemSpace * (spanCount - 1)) / spanCount
+    }
 
     override fun getRootView(): View {
         return viewBinding.root
@@ -62,6 +77,10 @@ class RankingFragment : BaseMusicFragment() {
     override fun onLazyCreate() {
         super.onLazyCreate()
 
+        configWindowInsets {
+            navBarColor = getColor(R.color.play_bar_bg)
+        }
+
         initView()
         initDataObserver()
         loadData()
@@ -80,7 +99,6 @@ class RankingFragment : BaseMusicFragment() {
     }
 
     private fun initView() {
-        val itemWidth = (ScreenUtils.getAppScreenWidth() - SizeUtils.dp2px(52f)) / 3
         adapter.register(PlaylistData::class, object : RTypeMapper<PlaylistData> {
             private val officialItemBinder = OfficialRankingItemBinder(object :
                 OfficialRankingItemBinder.OnItemClickListener {
@@ -92,7 +110,8 @@ class RankingFragment : BaseMusicFragment() {
                     playPlaylist(item)
                 }
             })
-            private val selectedItemBinder = SelectedRankingItemBinder(itemWidth,
+            private val selectedItemBinder = SelectedRankingItemBinder(
+                itemWidth,
                 object : SelectedRankingItemBinder.OnItemClickListener {
                     override fun onItemClick(item: PlaylistData, position: Int) {
                         openRankingDetail(item)
@@ -100,11 +119,6 @@ class RankingFragment : BaseMusicFragment() {
 
                     override fun onPlayClick(item: PlaylistData, position: Int) {
                         playPlaylist(item)
-                    }
-
-                    override fun getFirstSelectedPosition(): Int {
-                        val dataList = viewModel.rankingList.value ?: return -1
-                        return dataList.indexOfFirst { it is PlaylistData && it.toplistType.isEmpty() }
                     }
                 })
 
@@ -117,21 +131,29 @@ class RankingFragment : BaseMusicFragment() {
             }
         })
         adapter.register(RankingTitleItemBinding())
-        viewBinding.recyclerView.layoutManager = GridLayoutManager(requireContext(), 3).apply {
-            spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
-                override fun getSpanSize(position: Int): Int {
-                    val dataList = viewModel.rankingList.value ?: return 1
-                    val item = dataList.getOrNull(position) ?: return 1
-                    return if (item is RankingViewModel.TitleData
-                        || (item is PlaylistData && item.toplistType.isNotEmpty())
-                    ) {
-                        3
-                    } else {
-                        1
+        viewBinding.recyclerView.layoutManager =
+            GridLayoutManager(requireContext(), spanCount).apply {
+                spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
+                    override fun getSpanSize(position: Int): Int {
+                        val dataList = viewModel.rankingList.value ?: return 1
+                        val item = dataList.getOrNull(position) ?: return 1
+                        return if (item is RankingViewModel.TitleData
+                            || (item is PlaylistData && item.toplistType.isNotEmpty())
+                        ) {
+                            this@RankingFragment.spanCount
+                        } else {
+                            1
+                        }
                     }
                 }
             }
-        }
+        val spacing = SizeUtils.dp2px(10f)
+        viewBinding.recyclerView.addItemDecoration(
+            SelectedRankingSpacingDecoration(spacing, spacing) {
+                viewModel.rankingList.value.orEmpty().indexOfFirst {
+                    it is PlaylistData && it.toplistType.isEmpty()
+                }
+            })
         viewBinding.recyclerView.adapter = adapter
     }
 
@@ -164,9 +186,5 @@ class RankingFragment : BaseMusicFragment() {
                 dismissLoading()
             }
         }
-    }
-
-    override fun getNavigationBarColor(): Int {
-        return R.color.play_bar_bg
     }
 }

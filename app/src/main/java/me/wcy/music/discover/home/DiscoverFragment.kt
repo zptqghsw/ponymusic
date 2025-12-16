@@ -179,7 +179,8 @@ class DiscoverFragment : BaseMusicFragment() {
                 .url(RoutePath.PLAYLIST_SQUARE)
                 .start()
         }
-        val itemWidth = (ScreenUtils.getAppScreenWidth() - SizeUtils.dp2px(20f)) / 3
+        val itemWidth = ((ScreenUtils.getAppScreenWidth() - SizeUtils.dp2px(20f)) / 3)
+            .coerceAtMost(resources.getDimensionPixelSize(R.dimen.playlist_item_max_width))
         recommendPlaylistAdapter.register(PlaylistItemBinder(itemWidth, true, object :
             PlaylistItemBinder.OnItemClickListener {
             override fun onItemClick(item: PlaylistData) {

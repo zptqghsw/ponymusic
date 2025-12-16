@@ -4,17 +4,26 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.AudioManager
+import android.os.Build
 import android.os.Bundle
 import android.text.format.DateUtils
 import android.util.Log
+import android.widget.ImageView
 import android.widget.SeekBar
 import android.widget.SeekBar.OnSeekBarChangeListener
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
+import androidx.core.view.updatePadding
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.MediaItem
-import com.gyf.immersionbar.ImmersionBar
 import dagger.hilt.android.AndroidEntryPoint
 import jp.wasabeef.blurry.Blurry
 import kotlinx.coroutines.Job
@@ -34,6 +43,7 @@ import me.wcy.music.service.PlayerController
 import me.wcy.music.service.likesong.LikeSongProcessor
 import me.wcy.music.storage.LrcCache
 import me.wcy.music.storage.preference.ConfigPreferences
+import me.wcy.music.utils.BitmapUtils.transAlpha
 import me.wcy.music.utils.TimeUtils
 import me.wcy.music.utils.getDuration
 import me.wcy.music.utils.getLargeCover
@@ -44,7 +54,6 @@ import top.wangchenyan.common.ext.toast
 import top.wangchenyan.common.ext.viewBindings
 import top.wangchenyan.common.net.apiCall
 import top.wangchenyan.common.utils.LaunchUtils
-import top.wangchenyan.common.utils.StatusBarUtils
 import top.wangchenyan.common.utils.image.ImageUtils
 import java.io.File
 import javax.inject.Inject
@@ -71,6 +80,18 @@ class PlayingActivity : BaseMusicActivity() {
     private val defaultCoverBitmap by lazy {
         BitmapFactory.decodeResource(resources, R.drawable.bg_playing_default_cover)
     }
+    private val defaultBgBitmap by lazy {
+        BitmapFactory.decodeResource(
+            resources,
+            R.drawable.bg_playing_default,
+            BitmapFactory.Options().apply {
+                inPreferredConfig = Bitmap.Config.RGB_565
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    outConfig = Bitmap.Config.RGB_565
+                }
+            }
+        )
+    }
 
     private var loadLrcJob: Job? = null
 
@@ -81,6 +102,7 @@ class PlayingActivity : BaseMusicActivity() {
         super.onCreate(savedInstanceState)
         setContentView(viewBinding.root)
 
+        initWindowInsets()
         initTitle()
         initVolume()
         initCover()
@@ -91,25 +113,48 @@ class PlayingActivity : BaseMusicActivity() {
         switchCoverLrc(true)
     }
 
-    override fun onPostCreate(savedInstanceState: Bundle?) {
-        super.onPostCreate(savedInstanceState)
-        if (StatusBarUtils.isSupportStatusBarTransparent()) {
-            ImmersionBar.with(this)
-                .transparentNavigationBar()
-                .navigationBarDarkIcon(false)
-                .init()
+    private fun initWindowInsets() {
+        configWindowInsets {
+            fillNavBar = false
+            fillDisplayCutout = false
+            statusBarTextDarkStyle = false
+            navBarButtonDarkStyle = false
+        }
+
+        val updateInsets = { insets: WindowInsetsCompat ->
+            val result = insets.getInsets(
+                WindowInsetsCompat.Type.statusBars()
+                        or WindowInsetsCompat.Type.navigationBars()
+                        or WindowInsetsCompat.Type.displayCutout()
+            )
+            viewBinding.llContent.updatePadding(
+                left = result.left,
+                top = result.top,
+                right = result.right,
+                bottom = result.bottom,
+            )
+        }
+        val insets = ViewCompat.getRootWindowInsets(viewBinding.llContent)
+        if (insets != null) {
+            updateInsets(insets)
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(viewBinding.llContent) { v, insets ->
+            updateInsets(insets)
+            insets
         }
     }
 
     private fun initTitle() {
-        viewBinding.ivClose.setOnClickListener {
+        viewBinding.titleLayout.ivClose.setOnClickListener {
             onBackPressed()
         }
     }
 
     private fun initVolume() {
-        viewBinding.sbVolume.max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-        viewBinding.sbVolume.progress = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        viewBinding.volumeLayout.sbVolume.max =
+            audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        viewBinding.volumeLayout.sbVolume.progress =
+            audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
         val filter = IntentFilter(VOLUME_CHANGED_ACTION)
         registerReceiverCompat(volumeReceiver, filter)
     }
@@ -117,9 +162,10 @@ class PlayingActivity : BaseMusicActivity() {
     private fun initCover() {
         val playState = playerController.playState.value
         viewBinding.albumCoverView.initNeedle(playState.isPlaying)
-        viewBinding.clAlbumCover.setOnClickListener {
+        viewBinding.albumCoverView.setOnClickListener {
             switchCoverLrc(false)
         }
+        setDefaultCover()
     }
 
     private fun initLrc() {
@@ -140,7 +186,7 @@ class PlayingActivity : BaseMusicActivity() {
     }
 
     private fun initActions() {
-        viewBinding.ivLike.setOnClickListener {
+        viewBinding.controlLayout.ivLike.setOnClickListener {
             lifecycleScope.launch {
                 val song = playerController.currentSong.value ?: return@launch
                 val res = likeSongProcessor.like(this@PlayingActivity, song.getSongId())
@@ -151,7 +197,7 @@ class PlayingActivity : BaseMusicActivity() {
                 }
             }
         }
-        viewBinding.ivDownload.setOnClickListener {
+        viewBinding.controlLayout.ivDownload.setOnClickListener {
             lifecycleScope.launch {
                 val song = playerController.currentSong.value ?: return@launch
                 val res = apiCall {
@@ -171,34 +217,32 @@ class PlayingActivity : BaseMusicActivity() {
     private fun initPlayControl() {
         lifecycleScope.launch {
             playerController.playMode.collectLatest { playMode ->
-                viewBinding.ivMode.setImageLevel(playMode.value)
+                viewBinding.controlLayout.ivMode.setImageLevel(playMode.value)
             }
         }
 
-        val lp = viewBinding.navigationBarPlaceholder.layoutParams
-        lp.height = ImmersionBar.getNavigationBarHeight(this)
-        viewBinding.navigationBarPlaceholder.layoutParams = lp
-
-        viewBinding.ivMode.setOnClickListener {
+        viewBinding.controlLayout.ivMode.setOnClickListener {
             switchPlayMode()
         }
-        viewBinding.flPlay.setOnClickListener {
+        viewBinding.controlLayout.flPlay.setOnClickListener {
             playerController.playPause()
         }
-        viewBinding.ivPrev.setOnClickListener {
+        viewBinding.controlLayout.ivPrev.setOnClickListener {
             playerController.prev()
         }
-        viewBinding.ivNext.setOnClickListener {
+        viewBinding.controlLayout.ivNext.setOnClickListener {
             playerController.next()
         }
-        viewBinding.ivPlaylist.setOnClickListener {
+        viewBinding.controlLayout.ivPlaylist.setOnClickListener {
             CurrentPlaylistFragment.newInstance()
                 .show(supportFragmentManager, CurrentPlaylistFragment.TAG)
         }
-        viewBinding.sbProgress.setOnSeekBarChangeListener(object : OnSeekBarChangeListener {
+        viewBinding.controlLayout.sbProgress.setOnSeekBarChangeListener(object :
+            OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (abs(progress - lastProgress) >= DateUtils.SECOND_IN_MILLIS) {
-                    viewBinding.tvCurrentTime.text = TimeUtils.formatMs(progress.toLong())
+                    viewBinding.controlLayout.tvCurrentTime.text =
+                        TimeUtils.formatMs(progress.toLong())
                     lastProgress = progress
                 }
             }
@@ -222,7 +266,8 @@ class PlayingActivity : BaseMusicActivity() {
                 }
             }
         })
-        viewBinding.sbVolume.setOnSeekBarChangeListener(object : OnSeekBarChangeListener {
+        viewBinding.volumeLayout.sbVolume.setOnSeekBarChangeListener(object :
+            OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
             }
 
@@ -241,24 +286,32 @@ class PlayingActivity : BaseMusicActivity() {
     }
 
     private fun initData() {
-        playerController.currentSong.observe(this) { song ->
-            if (song != null) {
-                viewBinding.tvTitle.text = song.mediaMetadata.title
-                viewBinding.tvArtist.text = song.mediaMetadata.artist
-                viewBinding.sbProgress.max = song.mediaMetadata.getDuration().toInt()
-                viewBinding.sbProgress.progress = playerController.playProgress.value.toInt()
-                viewBinding.sbProgress.secondaryProgress = 0
-                lastProgress = 0
-                viewBinding.tvCurrentTime.text =
-                    TimeUtils.formatMs(playerController.playProgress.value)
-                viewBinding.tvTotalTime.text = TimeUtils.formatMs(song.mediaMetadata.getDuration())
-                updateCover(song)
-                updateLrc(song)
-                viewBinding.albumCoverView.reset()
-                updatePlayState(playerController.playState.value)
-                updateOnlineActionsState(song)
-            } else {
-                finish()
+        val onSongUpdate: (MediaItem) -> Unit = { song ->
+            viewBinding.controlLayout.tvTitle.text = song.mediaMetadata.title
+            viewBinding.controlLayout.tvArtist.text = song.mediaMetadata.artist
+            viewBinding.controlLayout.sbProgress.max = song.mediaMetadata.getDuration().toInt()
+            viewBinding.controlLayout.sbProgress.progress =
+                playerController.playProgress.value.toInt()
+            viewBinding.controlLayout.sbProgress.secondaryProgress = 0
+            viewBinding.controlLayout.tvCurrentTime.text =
+                TimeUtils.formatMs(playerController.playProgress.value)
+            viewBinding.controlLayout.tvTotalTime.text =
+                TimeUtils.formatMs(song.mediaMetadata.getDuration())
+            updateCover(song)
+            updateLrc(song)
+            viewBinding.albumCoverView.reset()
+            updatePlayState(playerController.playState.value)
+            updateOnlineActionsState(song)
+        }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                playerController.currentSong.collectLatest { song ->
+                    if (song != null) {
+                        onSongUpdate(song)
+                    } else {
+                        finish()
+                    }
+                }
             }
         }
 
@@ -271,7 +324,7 @@ class PlayingActivity : BaseMusicActivity() {
         lifecycleScope.launch {
             playerController.playProgress.collectLatest { progress ->
                 if (isDraggingProgress.not()) {
-                    viewBinding.sbProgress.progress = progress.toInt()
+                    viewBinding.controlLayout.sbProgress.progress = progress.toInt()
                 }
                 if (viewBinding.lrcView.hasLrc()) {
                     viewBinding.lrcView.updateTime(progress)
@@ -281,21 +334,51 @@ class PlayingActivity : BaseMusicActivity() {
 
         lifecycleScope.launch {
             playerController.bufferingPercent.collectLatest { percent ->
-                viewBinding.sbProgress.secondaryProgress =
-                    viewBinding.sbProgress.max * percent / 100
+                viewBinding.controlLayout.sbProgress.secondaryProgress =
+                    viewBinding.controlLayout.sbProgress.max * percent / 100
             }
         }
     }
 
     private fun updateCover(song: MediaItem) {
-        viewBinding.albumCoverView.setCoverBitmap(defaultCoverBitmap)
-        viewBinding.ivPlayingBg.setImageResource(R.drawable.bg_playing_default)
+        setDefaultCover()
         ImageUtils.loadBitmap(song.getLargeCover()) {
             if (it.isSuccessWithData()) {
                 val bitmap = it.getDataOrThrow()
                 viewBinding.albumCoverView.setCoverBitmap(bitmap)
                 Blurry.with(this).sampling(10).from(bitmap).into(viewBinding.ivPlayingBg)
+                updateLrcMask()
             }
+        }
+    }
+
+    private fun setDefaultCover() {
+        viewBinding.albumCoverView.setCoverBitmap(defaultCoverBitmap)
+        viewBinding.ivPlayingBg.setImageBitmap(defaultBgBitmap)
+        updateLrcMask()
+    }
+
+    private fun updateLrcMask() {
+        updateLrcMask(viewBinding.ivLrcTopMask, true)
+        updateLrcMask(viewBinding.ivLrcBottomMask, false)
+    }
+
+    private fun updateLrcMask(maskView: ImageView, topToBottom: Boolean) {
+        maskView.doOnLayout {
+            val bitmap = com.blankj.utilcode.util.ImageUtils.view2Bitmap(viewBinding.flBackground)
+            val location = IntArray(2)
+            maskView.getLocationInWindow(location)
+            val clippedBitmap = com.blankj.utilcode.util.ImageUtils.clip(
+                bitmap,
+                location[0],
+                location[1],
+                maskView.width,
+                maskView.height,
+                true
+            )
+            val alphaBitmap = clippedBitmap.transAlpha(topToBottom)
+            clippedBitmap.recycle()
+            maskView.setImageBitmap(alphaBitmap)
         }
     }
 
@@ -341,8 +424,10 @@ class PlayingActivity : BaseMusicActivity() {
     }
 
     private fun switchCoverLrc(showCover: Boolean) {
-        viewBinding.clAlbumCover.isVisible = showCover
-        viewBinding.lrcLayout.isVisible = showCover.not()
+        if (resources.configuration.orientation != Configuration.ORIENTATION_LANDSCAPE) {
+            viewBinding.albumCoverView.isVisible = showCover
+            viewBinding.lrcLayout.isVisible = showCover.not()
+        }
     }
 
     private fun switchPlayMode() {
@@ -358,45 +443,44 @@ class PlayingActivity : BaseMusicActivity() {
     private fun updatePlayState(playState: PlayState) {
         when (playState) {
             PlayState.Preparing -> {
-                viewBinding.flPlay.isEnabled = false
-                viewBinding.ivPlay.isSelected = false
-                viewBinding.loadingProgress.isVisible = true
+                viewBinding.controlLayout.flPlay.isEnabled = false
+                viewBinding.controlLayout.ivPlay.isSelected = false
+                viewBinding.controlLayout.loadingProgress.isVisible = true
                 viewBinding.albumCoverView.pause()
             }
 
             PlayState.Playing -> {
-                viewBinding.flPlay.isEnabled = true
-                viewBinding.ivPlay.isSelected = true
-                viewBinding.loadingProgress.isVisible = false
+                viewBinding.controlLayout.flPlay.isEnabled = true
+                viewBinding.controlLayout.ivPlay.isSelected = true
+                viewBinding.controlLayout.loadingProgress.isVisible = false
                 viewBinding.albumCoverView.start()
             }
 
             else -> {
-                viewBinding.flPlay.isEnabled = true
-                viewBinding.ivPlay.isSelected = false
-                viewBinding.loadingProgress.isVisible = false
+                viewBinding.controlLayout.flPlay.isEnabled = true
+                viewBinding.controlLayout.ivPlay.isSelected = false
+                viewBinding.controlLayout.loadingProgress.isVisible = false
                 viewBinding.albumCoverView.pause()
             }
         }
     }
 
     private fun updateOnlineActionsState(song: MediaItem) {
-        viewBinding.llActions.isVisible = song.isLocal().not()
-        viewBinding.ivLike.isSelected = likeSongProcessor.isLiked(song.getSongId())
-    }
-
-    override fun getNavigationBarColor(): Int {
-        return R.color.black
+        viewBinding.controlLayout.llActions.isVisible = song.isLocal().not()
+        viewBinding.controlLayout.ivLike.isSelected = likeSongProcessor.isLiked(song.getSongId())
     }
 
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(volumeReceiver)
+        defaultCoverBitmap.recycle()
+        defaultBgBitmap.recycle()
     }
 
     private val volumeReceiver: BroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            viewBinding.sbVolume.progress = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+            viewBinding.volumeLayout.sbVolume.progress =
+                audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
         }
     }
 
